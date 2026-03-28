@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (Python + Shell)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Python lint
+        run: |
+          find . -name "*.py" -not -path "./.git/*" | xargs flake8 --max-line-length=88 --ignore=E203,W503 || true
+
+      - name: ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: "."
+          severity: warning
+
+  build-c:
+    name: Build USBPDRoleSwap (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CMake
+        run: brew install cmake
+
+      - name: CMake configure
+        run: |
+          cd USBPDRoleSwap
+          cmake -B build -S . || true
+
+      - name: CMake build
+        run: |
+          cd USBPDRoleSwap
+          cmake --build build || true
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog secret scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          extra_args: --only-verified
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Bandit security analysis
+        run: |
+          pip install bandit
+          find . -name "*.py" -not -path "./.git/*" | xargs bandit -ll || true
